@@ -31,6 +31,8 @@ class ProcessManager
 
     protected $runing = false;
     protected $closed = false;
+    protected $stoping = false;
+    protected $waitStarting = false;
 
     static $debug = false;
 
@@ -56,11 +58,17 @@ class ProcessManager
     public function start()
     {
 
+        if ($this->stoping) {
+            $this->waitStarting = true;
+            return;
+        }
+
         if ($this->runing) {
-            return $this;
+            return ;
         }
 
         $this->runing = true;
+        $this->waitStarting = false;
 
         if (!$this->number) {
             throw new \Exception('Number of processes not set');
@@ -73,7 +81,7 @@ class ProcessManager
         $this->startServer();
         $this->startClient();
 
-        return $this;
+        return ;
     }
 
     protected function startServer()
@@ -171,24 +179,24 @@ class ProcessManager
         $process = new Process($cmd);
         $process->start();
 
-        $process->stdout->on('data', function ($chunk) {
-            echo $chunk . PHP_EOL;
+        $process->stdout->on('data', function ($chunk) use ($cmd) {
+            echo $cmd.' '. $chunk . PHP_EOL;
         });
 
-        $process->stdout->on('end', function () {
-            echo 'ended' . PHP_EOL;
+        $process->stdout->on('end', function ()  use ($cmd) {
+            echo $cmd. ' ended' . PHP_EOL;
         });
 
-        $process->stdout->on('error', function (\Exception $e) {
-            echo 'error: ' . $e->getMessage() . PHP_EOL;
+        $process->stdout->on('error', function (\Exception $e)  use ($cmd) {
+            echo $cmd.' error: '.' '. $e->getMessage() . PHP_EOL;
         });
 
-        $process->stdout->on('close', function () {
-            echo 'closed' . PHP_EOL;
+        $process->stdout->on('close', function () use ($cmd) {
+            echo $cmd.' closed' . PHP_EOL;
         });
 
-        $process->stderr->on('data', function ($chunk) {
-            echo $chunk;
+        $process->stderr->on('data', function ($chunk) use ($cmd) {
+            echo $cmd. ' '. $chunk. PHP_EOL;
         });
 
 
@@ -199,6 +207,14 @@ class ProcessManager
             $this->processes->detach($process);
             if (!$this->closed) {
                 $this->runProcess($cmd);
+            } else {
+                if ($this->processes->count() == 0) {
+                    $this->stoping = false;
+                    $this->runing = false;
+                    if ($this->waitStarting) {
+                        $this->start();
+                    }
+                }
             }
         });
     }
@@ -225,6 +241,8 @@ class ProcessManager
     public function stop()
     {
         $this->closed = true;
+        $this->stoping = true;
+        $this->waitStarting = false;
         foreach ($this->processes as $process) {
             $process->close();
         }
