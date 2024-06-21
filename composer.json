@@ -1,0 +1,20 @@
+{
+    "name": "reactphp-framework/process-manager",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Reactphp\\Framework\\ProcessManager\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "wpjscc",
+            "email": "wpjscc@gmail.com"
+        }
+    ],
+    "require": {
+        "react/child-process": "^0.6.5",
+        "reactphp-framework/single": "^1.0",
+        "reactphp-framework/bridge": "^0.0.1"
+    }
+}
