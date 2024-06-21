@@ -240,6 +240,10 @@ class ProcessManager
 
     public function stop()
     {
+        if ($this->closed) {
+            return ;
+        }
+
         $this->closed = true;
         $this->stoping = true;
         $this->waitStarting = false;
