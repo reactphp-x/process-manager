@@ -19,8 +19,9 @@ class ProcessManager
 
     protected $processes;
     protected $pool;
+    protected $tcp;
 
-    private $number = 2;
+    private $number = 1;
     protected $php;
     protected $uri;
     protected $secret;
@@ -45,14 +46,20 @@ class ProcessManager
     }
 
 
-    public function call($callback)
+    public function call($callback, $once = true)
     {
         if (!$this->runing) {
             $this->start();
         }
 
         $uuid = (string) rand(1, count($this->configs));
-        return $this->pool->call(SerializableClosure::serialize($callback, $uuid), ['uuid' => $uuid]);
+        $stream = $this->pool->call(SerializableClosure::serialize($callback, $uuid), ['uuid' => $uuid]);
+        $stream->on('close', function () use ($once) {
+            if ($once) {
+                $this->stop();
+            }
+        });
+        return $stream;
     }
 
     public function start()
@@ -112,10 +119,12 @@ class ProcessManager
             unlink($path);
         }
 
-        new Tcp($this->uri, new BridgeStrategy([
+        $tcp = new Tcp($this->uri, new BridgeStrategy([
             new TcpBridge($server),
             new HttpBridge(new WsBridge($server))
         ]));
+
+        $this->tcp = $tcp;
 
         $this->pool = $pool;
     }
@@ -209,8 +218,13 @@ class ProcessManager
                 $this->runProcess($cmd);
             } else {
                 if ($this->processes->count() == 0) {
+                    $this->configs = [];
                     $this->stoping = false;
                     $this->runing = false;
+                    if ($this->tcp) {
+                        $this->tcp->close();
+                        $this->tcp = null;
+                    }
                     if ($this->waitStarting) {
                         $this->start();
                     }
