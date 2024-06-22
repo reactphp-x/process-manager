@@ -5,7 +5,7 @@ require __DIR__ . '/../vendor/autoload.php';
 use Reactphp\Framework\ProcessManager\ProcessManager;
 use React\EventLoop\Loop;
 
-// ProcessManager::$debug = true;
+ProcessManager::$debug = true;
 
 ProcessManager::instance('queue')->setNumber(2);
 $stream = ProcessManager::instance('queue')->call(function($stream) {
@@ -25,7 +25,7 @@ var_dump(ProcessManager::instance('queue')->getInfo());
 
 
 Loop::addTimer(2, function () {
-    ProcessManager::instance('queue')->stop();
+    // ProcessManager::instance('queue')->stop();
 });
 
 

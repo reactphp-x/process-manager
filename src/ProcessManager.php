@@ -46,7 +46,7 @@ class ProcessManager
     }
 
 
-    public function call($callback, $once = true)
+    public function call($callback, $once = false)
     {
         if (!$this->runing) {
             $this->start();
