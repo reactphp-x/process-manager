@@ -155,7 +155,7 @@ class ProcessManager
         }
 
         if ($this->runing) {
-            error_log('已经运行了，不在生效', LOG_WARNING);
+            // error_log('已经运行了，不在生效', LOG_WARNING);
             return ;
         }
 
@@ -235,7 +235,9 @@ class ProcessManager
 
     public function reload()
     {
-        $this->terminate();
+        foreach ($this->processes as $process) {
+            $process->terminate();
+        }
     }
 
     public function restart()
@@ -247,6 +249,14 @@ class ProcessManager
 
     public function terminate()
     {
+        if ($this->closed) {
+            return ;
+        }
+
+        $this->closed = true;
+        $this->stoping = true;
+        $this->waitStarting = false;
+
         foreach ($this->processes as $process) {
             $process->terminate();
         }
