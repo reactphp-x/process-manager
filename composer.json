@@ -15,6 +15,6 @@
     "require": {
         "react/child-process": "^0.6.5",
         "reactphp-framework/single": "^1.0",
-        "reactphp-framework/bridge": "^0.0.2"
+        "reactphp-framework/bridge": "^0.0.3"
     }
 }
