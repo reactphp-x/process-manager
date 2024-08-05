@@ -52,6 +52,13 @@ $stream->on('close', function() {
 });
 ```
 
+
+set process boot file
+```php
+// see example/02.php
+ProcessManager::instance('queue')->setBootFile(__DIR__.'/boot.php');
+```
+
 set process number
 ```php
 ProcessManager::instance('queue')->setNumber(10);
@@ -69,6 +76,7 @@ $stream->on('close', function() {
 
 var_dump(ProcessManager::instance('queue')->getInfo());
 ```
+
 
 
 # License

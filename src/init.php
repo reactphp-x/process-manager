@@ -1,10 +1,13 @@
 <?php
 
-if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
-    require __DIR__ . '/../vendor/autoload.php';
+if (getenv('BOOT_FILE')) {
+    require getenv('BOOT_FILE');
 } else {
-
-    require __DIR__ . '/../../../autoload.php';
+    if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
+        require __DIR__ . '/../vendor/autoload.php';
+    } else {
+        require __DIR__ . '/../../../autoload.php';
+    } 
 }
 
 use Reactphp\Framework\Bridge\Client;

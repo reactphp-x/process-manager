@@ -21,6 +21,7 @@ class ProcessManager
     protected $pool;
     protected $tcp;
 
+    private $bootFile;
     private $number = 1;
     protected $php;
     protected $uri;
@@ -142,9 +143,14 @@ class ProcessManager
         $debug = static::$debug ? 1 : 0;
         foreach ($this->configs as $uuid => $secret) {
             $uri = $this->uri;
-            $cmd = str_replace('{{placeholder}}', "DEBUG=$debug URI=$uri UUID=$uuid SECRET=$secret", $this->cmd);
+            $cmd = str_replace('{{placeholder}}', "DEBUG=$debug URI=$uri UUID=$uuid SECRET=$secret BOOT_FILE={$this->bootFile}", $this->cmd);
             $this->runProcess($cmd);
         }
+    }
+
+    public function setBootFile($file)
+    {
+        $this->bootFile = $file;
     }
 
     public function setNumber($number)
@@ -161,6 +167,7 @@ class ProcessManager
 
         $this->number = $number;
     }
+    
 
     public function setPhp($php)
     {
