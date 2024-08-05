@@ -289,6 +289,7 @@ class ProcessManager
             'debug' => static::$debug,
             'key' => $this->key,
             'number' => $this->number,
+            'bootFile' => $this->bootFile,
             'uri' => $this->uri,
             'php' => $this->php,
             'cmd' => $this->cmd,
