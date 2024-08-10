@@ -2,7 +2,7 @@
 
 require __DIR__ . '/../vendor/autoload.php';
 
-use Reactphp\Framework\ProcessManager\ProcessManager;
+use ReactphpX\ProcessManager\ProcessManager;
 use React\EventLoop\Loop;
 
 ProcessManager::$debug = true;

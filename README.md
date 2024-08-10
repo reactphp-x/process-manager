@@ -1,9 +1,9 @@
-# reactphp-framework-process-manager
+# reactphp-x-process-manager
 
 ## isntall 
 
 ```
-composer require reactphp-framework/process-manager -vvv
+composer require reactphp-x/process-manager -vvv
 
 ```
 
@@ -12,7 +12,7 @@ composer require reactphp-framework/process-manager -vvv
 ```php
 require __DIR__ . '/../vendor/autoload.php';
 
-use Reactphp\Framework\ProcessManager\ProcessManager;
+use ReactphpX\ProcessManager\ProcessManager;
 
 ProcessManager::$debug = true;
 
@@ -35,7 +35,7 @@ other handle in different process
 ```php
 require __DIR__ . '/../vendor/autoload.php';
 
-use Reactphp\Framework\ProcessManager\ProcessManager;
+use ReactphpX\ProcessManager\ProcessManager;
 
 ProcessManager::$debug = true;
 

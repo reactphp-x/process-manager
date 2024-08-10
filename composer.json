@@ -1,9 +1,9 @@
 {
-    "name": "reactphp-framework/process-manager",
+    "name": "reactphp-x/process-manager",
     "license": "MIT",
     "autoload": {
         "psr-4": {
-            "Reactphp\\Framework\\ProcessManager\\": "src/"
+            "ReactphpX\\ProcessManager\\": "src/"
         }
     },
     "authors": [
@@ -14,7 +14,7 @@
     ],
     "require": {
         "react/child-process": "^0.6.5",
-        "reactphp-framework/single": "^1.0",
-        "reactphp-framework/bridge": "^0.0.3"
+        "reactphp-x/single": "^1.0",
+        "reactphp-x/bridge": "^0.0.3"
     }
 }

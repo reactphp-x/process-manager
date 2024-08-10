@@ -10,7 +10,7 @@ if (getenv('BOOT_FILE')) {
     } 
 }
 
-use Reactphp\Framework\Bridge\Client;
+use ReactphpX\Bridge\Client;
 use React\EventLoop\Loop;
 
 $uri = getenv('URI');
