@@ -75,7 +75,9 @@ class ProcessManager
             return ;
         }
 
+        $this->configs = [];
         $this->runing = true;
+        $this->closed = false;
         $this->waitStarting = false;
 
         if (!$this->number) {
@@ -160,10 +162,10 @@ class ProcessManager
             throw new \Exception('Number of processes must be greater than 0');
         }
 
-        if ($this->runing) {
-            // error_log('已经运行了，不在生效', LOG_WARNING);
-            return ;
-        }
+        // if ($this->runing) {
+        //     // error_log('已经运行了，不在生效', LOG_WARNING);
+        //     return ;
+        // }
 
         $this->number = $number;
     }
@@ -242,16 +244,14 @@ class ProcessManager
 
     public function reload()
     {
-        foreach ($this->processes as $process) {
-            $process->terminate();
-        }
+        $this->terminate();
+        $this->start();
     }
 
     public function restart()
     {
-        foreach ($this->processes as $process) {
-            $process->close();
-        }
+        $this->stop();
+        $this->start();
     }
 
     public function terminate()
@@ -265,6 +265,9 @@ class ProcessManager
         $this->waitStarting = false;
 
         foreach ($this->processes as $process) {
+            foreach ($process->pipes as $pipe) {
+                $pipe->close();
+            }
             $process->terminate();
         }
     }

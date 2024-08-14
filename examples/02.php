@@ -26,7 +26,8 @@ var_dump(ProcessManager::instance('queue')->getInfo());
 
 
 Loop::addTimer(2, function () {
-    // ProcessManager::instance('queue')->stop();
+    // ProcessManager::instance('queue')->setNumber(3);
+    // ProcessManager::instance('queue')->reload();
 });
 
 

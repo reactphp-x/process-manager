@@ -1,13 +1,13 @@
 <?php
 
-if (getenv('BOOT_FILE')) {
-    require getenv('BOOT_FILE');
+if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
+    require __DIR__ . '/../vendor/autoload.php';
 } else {
-    if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
-        require __DIR__ . '/../vendor/autoload.php';
-    } else {
-        require __DIR__ . '/../../../autoload.php';
-    } 
+    require __DIR__ . '/../../../autoload.php';
+}
+
+if (getenv('BOOT_FILE')) {
+    require_once getenv('BOOT_FILE');
 }
 
 use ReactphpX\Bridge\Client;
@@ -27,13 +27,24 @@ $client->start();
 
 
 
+$start = time();
 
-
-Loop::addPeriodicTimer(10, function () use ($uuid) {
+Loop::addPeriodicTimer(10, function () use ($uuid, $start) {
     $memoryUsage = memory_get_usage();
     $memoryUsageInM = round($memoryUsage / 1024 / 1024, 2);
+    $end = time();
+    $run_time = $end - $start;
     $date = date('Y-m-d H:i:s');
-    echo "$date $uuid Memory usage: {$memoryUsageInM} MB\n";
+    var_export([
+        'uuid' => $uuid,
+        'date' => $date,
+        'memory' => "{$memoryUsageInM} MB",
+        'run_time' => $run_time,
+    ]);
+});
+
+Loop::addPeriodicTimer(60, function () {
+    gc_collect_cycles();
 });
 
 
