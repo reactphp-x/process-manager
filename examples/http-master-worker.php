@@ -34,6 +34,8 @@ $socket->on('connection', async(function (\React\Socket\ConnectionInterface $con
         $stream->write($buffer);
         $buffer = '';
     }
+    
+    $connection->removeListener('data', $fn);
 
 
     $stream->on('data', function ($data) use ($connection) {
