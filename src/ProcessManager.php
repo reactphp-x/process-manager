@@ -3,148 +3,86 @@
 namespace ReactphpX\ProcessManager;
 
 use React\ChildProcess\Process;
+use ReactphpX\Pool\AbstractConnectionPool;
+use ReactphpX\TunnelStream\TunnelStream;
+use ReactphpX\Concurrent\Concurrent;
 
-class ProcessManager
+class ProcessManager extends AbstractConnectionPool
 {
-    private array $processes = [];
-    private array $idleProcesses = [];
-    private array $sharedProcesses = [];
-    private int $minIdleProcesses;
-    private int $maxProcesses;
-    private string $command;
-
-    public function __construct(string $command, int $minIdleProcesses = 1, int $maxProcesses = 1)
+    public function __construct(string $command, int $minIdleProcesses = 1, int $maxProcesses = 1, int $waitQueue = 100, int $waitTimeout = 10)
     {
-        $this->command = $command;
-        $this->minIdleProcesses = $minIdleProcesses;
-        $this->maxProcesses = $maxProcesses;
-
-        $this->initializeProcessPool();
+        parent::__construct($command, $minIdleProcesses, $maxProcesses, $waitQueue, $waitTimeout);
     }
 
-    private function initializeProcessPool(): void
+    public function createConnection()
     {
-        for ($i = 0; $i < $this->minIdleProcesses; $i++) {
-            $this->createProcess();
-        }
-    }
-
-    private function createProcess(): ProcessWrapper
-    {
-        $process = new Process($this->command);
-        $process->on('exit', function ($exitCode, $termSignal) use ($process) {
-            $key = array_search($process, array_map(fn($wrapper) => $wrapper->getProcess(), $this->processes));
-            if ($key !== false) {
-                unset($this->processes[$key]);
-                $this->processes = array_values($this->processes);
-            }
-        });
+        $process = new Process($this->uri);
         $process->start();
-        $wrapper = new ProcessWrapper($process);
-        $this->processes[] = $wrapper;
-        $this->idleProcesses[] = $wrapper;
-        return $wrapper;
-    }
+        $this->currentConnections++;
 
-    public function getProcess(bool $exclusive = false): ?Process
-    {
-        if (empty($this->idleProcesses)) {
-            if (count($this->processes) < $this->maxProcesses) {
-                $wrapper = $this->createProcess();
-                if ($exclusive) {
-                    $wrapper->setShared(false);
+        $wraper = new class($process) {
+            public function __construct(protected Process $process) {}
+
+            public function getProcess(): Process
+            {
+                return $this->process;
+            }
+
+            public function ping()
+            {
+                return \React\Promise\resolve(true);
+            }
+
+
+            public function close()
+            {
+                foreach ($this->process->pipes as $pipe) {
+                    $pipe->close();
                 }
-                return $wrapper->getProcess();
+                $this->process->terminate();
             }
-            return null;
-        }
+        };
 
-        if ($exclusive) {
-            $wrapper = array_pop($this->idleProcesses);
-            $wrapper->setShared(false);
-            return $wrapper->getProcess();
-        } else {
-            $wrapper = null;
-            if (!empty($this->sharedProcesses)) {
-                // 找到使用量最少的进程
-                $minUsage = PHP_INT_MAX;
-                foreach ($this->sharedProcesses as $sharedWrapper) {
-                    $usage = $sharedWrapper->getUsageCount();
-                    if ($usage < $minUsage) {
-                        $minUsage = $usage;
-                        $wrapper = $sharedWrapper;
-                    }
-                }
-            } else {
-                $wrapper = array_pop($this->idleProcesses);
-                $this->sharedProcesses[] = $wrapper;
+        $process->on('exit', function ($exitCode, $termSignal) use ($wraper) {
+            if ($this->pool->contains($wraper)) {
+                $this->pool->detach($wraper);
             }
-            // 增加使用计数
-            $wrapper->incrementUsageCount();
-            return $wrapper->getProcess();
-        }
+            $this->currentConnections--;
+        });
 
-        // 如果空闲进程数量低于最小值，且总进程数未达到最大值，则创建新进程
-        if (
-            count($this->idleProcesses) < $this->minIdleProcesses
-            && count($this->processes) < $this->maxProcesses
-        ) {
-            $wrapper = $this->createProcess();
-            if ($exclusive) {
-                $wrapper->setShared(false);
-            } else {
-                $this->sharedProcesses[] = $wrapper;
-            }
-            $wrapper->incrementUsageCount();
-            return $wrapper->getProcess();
-        }
-
-        return null;
+        return $wraper;
     }
 
-    public function releaseProcess(Process $process): void
+    public function run(callable $callable, $prioritize = 0)
     {
-        $wrapper = null;
-        foreach ($this->processes as $processWrapper) {
-            if ($processWrapper->getProcess() === $process) {
-                $wrapper = $processWrapper;
-                break;
-            }
-        }
+        $concurrent = new Concurrent(1, 0, true);
+        $shadow = new class() {
+            public $wraper;
+            public $tunnelStream;
+        };
 
-        if ($wrapper === null) {
-            return;
-        }
+        $streamPromise = $concurrent->concurrent(fn() => $this->getConnection($prioritize)->then(function ($wraper) use ($callable, $shadow) {
+            $tunnelStream = new TunnelStream($wraper->getProcess()->stdout, $wraper->getProcess()->stdin);
+            $shadow->wraper = $wraper;
+            $shadow->tunnelStream = $tunnelStream;
+            return $tunnelStream->run($callable);
+        }));
 
-        if ($wrapper->isShared()) {
-            $key = array_search($wrapper, $this->sharedProcesses);
-            if ($key !== false) {
-                unset($this->sharedProcesses[$key]);
-                $this->sharedProcesses = array_values($this->sharedProcesses);
+        // 当streamPromise结束时，释放连接
+        $concurrent->concurrent(function () use ($shadow) {
+            // 释放连接
+            if ($shadow->tunnelStream) {
+                $shadow->tunnelStream->close();
+                $shadow->tunnelStream = null;
+            }
+            // 释放连接
+            if ($shadow->wraper) {
+                $this->releaseConnection($shadow->wraper);
             }
 
-            if (!in_array($wrapper, $this->sharedProcesses)) {
-                $this->idleProcesses[] = $wrapper;
-                // 重置使用计数
-                $wrapper->resetUsageCount();
-            }
-        } else {
-            $this->idleProcesses[] = $wrapper;
-            $wrapper->setShared(true);
-            $wrapper->resetUsageCount();
-        }
+            $shadow = null;
+        });
+
+        return $streamPromise;
     }
-
-    public function close(): void
-    {
-        foreach ($this->processes as $wrapper) {
-            $process = $wrapper->getProcess();
-            foreach ($process->pipes as $pipe) {
-                $pipe->close();
-            }
-            $process->terminate();
-        }
-    }
-
-
 }
