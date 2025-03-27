@@ -13,8 +13,9 @@
         }
     ],
     "require": {
-        "react/child-process": "^0.6.5",
-        "reactphp-x/single": "^1.0",
-        "reactphp-x/bridge": "^0.0.3"
+        "react/child-process": "^0.6.5"
+    },
+    "require-dev": {
+        "reactphp-x/tunnel-stream": "^1.0"
     }
 }

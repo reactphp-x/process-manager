@@ -3,268 +3,142 @@
 namespace ReactphpX\ProcessManager;
 
 use React\ChildProcess\Process;
-use ReactphpX\Bridge\Server;
-use ReactphpX\Bridge\Pool;
-use ReactphpX\Bridge\Verify\VerifyUuid;
-use ReactphpX\Bridge\Http\HttpBridge;
-use ReactphpX\Bridge\WebSocket\WsBridge;
-use ReactphpX\Bridge\Tcp\TcpBridge;
-use ReactphpX\Bridge\BridgeStrategy;
-use ReactphpX\Bridge\Io\Tcp;
-use ReactphpX\Bridge\SerializableClosure;
 
 class ProcessManager
 {
-    use \ReactphpX\Single\Single;
+    private array $processes = [];
+    private array $idleProcesses = [];
+    private array $sharedProcesses = [];
+    private int $minIdleProcesses;
+    private int $maxProcesses;
+    private string $command;
 
-    protected $processes;
-    protected $pool;
-    protected $tcp;
-
-    private $bootFile;
-    private $number = 1;
-    protected $php;
-    protected $uri;
-    protected $secret;
-
-    protected $configs = [];
-
-    protected $cmd;
-
-    protected $runing = false;
-    protected $closed = false;
-    protected $stoping = false;
-    protected $waitStarting = false;
-
-    static $debug = false;
-
-
-    protected function init()
+    public function __construct(string $command, int $minIdleProcesses = 1, int $maxProcesses = 1)
     {
-        $this->processes = new \SplObjectStorage();
-        $this->cmd = '{{placeholder}} exec ' . ($this->php ?: 'php') . ' ' . __DIR__ . '/init.php';
-        $this->uri = "unix:///var/run/process-manager-{$this->key}.sock";
+        $this->command = $command;
+        $this->minIdleProcesses = $minIdleProcesses;
+        $this->maxProcesses = $maxProcesses;
+
+        $this->initializeProcessPool();
     }
 
-
-    public function call($callback, $once = false)
+    private function initializeProcessPool(): void
     {
-        if (!$this->runing) {
-            $this->start();
+        for ($i = 0; $i < $this->minIdleProcesses; $i++) {
+            $this->createProcess();
         }
+    }
 
-        $uuid = (string) rand(1, count($this->configs));
-        $stream = $this->pool->call(SerializableClosure::serialize($callback, $uuid), ['uuid' => $uuid]);
-        $stream->on('close', function () use ($once) {
-            if ($once) {
-                $this->stop();
+    private function createProcess(): ProcessWrapper
+    {
+        $process = new Process($this->command);
+        $process->on('exit', function ($exitCode, $termSignal) use ($process) {
+            $key = array_search($process, array_map(fn($wrapper) => $wrapper->getProcess(), $this->processes));
+            if ($key !== false) {
+                unset($this->processes[$key]);
+                $this->processes = array_values($this->processes);
             }
         });
-        return $stream;
+        $process->start();
+        $wrapper = new ProcessWrapper($process);
+        $this->processes[] = $wrapper;
+        $this->idleProcesses[] = $wrapper;
+        return $wrapper;
     }
 
-    public function start()
+    public function getProcess(bool $exclusive = false): ?Process
     {
+        if (empty($this->idleProcesses)) {
+            if (count($this->processes) < $this->maxProcesses) {
+                $wrapper = $this->createProcess();
+                if ($exclusive) {
+                    $wrapper->setShared(false);
+                }
+                return $wrapper->getProcess();
+            }
+            return null;
+        }
 
-        if ($this->stoping) {
-            $this->waitStarting = true;
+        if ($exclusive) {
+            $wrapper = array_pop($this->idleProcesses);
+            $wrapper->setShared(false);
+            return $wrapper->getProcess();
+        } else {
+            $wrapper = null;
+            if (!empty($this->sharedProcesses)) {
+                // 找到使用量最少的进程
+                $minUsage = PHP_INT_MAX;
+                foreach ($this->sharedProcesses as $sharedWrapper) {
+                    $usage = $sharedWrapper->getUsageCount();
+                    if ($usage < $minUsage) {
+                        $minUsage = $usage;
+                        $wrapper = $sharedWrapper;
+                    }
+                }
+            } else {
+                $wrapper = array_pop($this->idleProcesses);
+                $this->sharedProcesses[] = $wrapper;
+            }
+            // 增加使用计数
+            $wrapper->incrementUsageCount();
+            return $wrapper->getProcess();
+        }
+
+        // 如果空闲进程数量低于最小值，且总进程数未达到最大值，则创建新进程
+        if (
+            count($this->idleProcesses) < $this->minIdleProcesses
+            && count($this->processes) < $this->maxProcesses
+        ) {
+            $wrapper = $this->createProcess();
+            if ($exclusive) {
+                $wrapper->setShared(false);
+            } else {
+                $this->sharedProcesses[] = $wrapper;
+            }
+            $wrapper->incrementUsageCount();
+            return $wrapper->getProcess();
+        }
+
+        return null;
+    }
+
+    public function releaseProcess(Process $process): void
+    {
+        $wrapper = null;
+        foreach ($this->processes as $processWrapper) {
+            if ($processWrapper->getProcess() === $process) {
+                $wrapper = $processWrapper;
+                break;
+            }
+        }
+
+        if ($wrapper === null) {
             return;
         }
 
-        if ($this->runing) {
-            return ;
-        }
-
-        $this->configs = [];
-        $this->runing = true;
-        $this->closed = false;
-        $this->waitStarting = false;
-
-        if (!$this->number) {
-            throw new \Exception('Number of processes not set');
-        }
-
-        if (!$this->uri) {
-            throw new \Exception('URI not set');
-        }
-
-        $this->startServer();
-        $this->startClient();
-
-        return ;
-    }
-
-    protected function startServer()
-    {
-
-        if (empty($this->configs)) {
-            for ($i = 0; $i < $this->number; $i++) {
-                $this->configs[(string)($i + 1)] = (string)($i + 1);
+        if ($wrapper->isShared()) {
+            $key = array_search($wrapper, $this->sharedProcesses);
+            if ($key !== false) {
+                unset($this->sharedProcesses[$key]);
+                $this->sharedProcesses = array_values($this->sharedProcesses);
             }
-        }
 
-        $server = new Server(new VerifyUuid($this->configs));
-
-        $server->enableKeepAlive(5);
-
-        $pool = new Pool($server, [
-            'min_connections' => 1,
-            'max_connections' => 100,
-            'connection_timeout' => 2,
-            'uuid_max_tunnel' => 1,
-            'keep_alive' => 5,
-            'wait_timeout' => 3
-        ]);
-
-        $path = str_replace('unix://', '', $this->uri);
-
-        if (file_exists($path)) {
-            unlink($path);
-        }
-
-        $tcp = new Tcp($this->uri, new BridgeStrategy([
-            new TcpBridge($server),
-            new HttpBridge(new WsBridge($server))
-        ]));
-
-        $this->tcp = $tcp;
-
-        $this->pool = $pool;
-    }
-
-
-
-    protected function startClient()
-    {
-
-        if (empty($this->configs)) {
-            for ($i = 0; $i < $this->number; $i++) {
-                $this->configs[(string)($i + 1)] = (string)($i + 1);
+            if (!in_array($wrapper, $this->sharedProcesses)) {
+                $this->idleProcesses[] = $wrapper;
+                // 重置使用计数
+                $wrapper->resetUsageCount();
             }
-        }
-        $debug = static::$debug ? 1 : 0;
-        foreach ($this->configs as $uuid => $secret) {
-            $uri = $this->uri;
-            $cmd = str_replace('{{placeholder}}', "DEBUG=$debug URI=$uri UUID=$uuid SECRET=$secret BOOT_FILE={$this->bootFile}", $this->cmd);
-            $this->runProcess($cmd);
+        } else {
+            $this->idleProcesses[] = $wrapper;
+            $wrapper->setShared(true);
+            $wrapper->resetUsageCount();
         }
     }
 
-    public function setBootFile($file)
+    public function close(): void
     {
-        $this->bootFile = $file;
-    }
-
-    public function setNumber($number)
-    {
-
-        if ($number < 1) {
-            throw new \Exception('Number of processes must be greater than 0');
-        }
-
-        // if ($this->runing) {
-        //     // error_log('已经运行了，不在生效', LOG_WARNING);
-        //     return ;
-        // }
-
-        $this->number = $number;
-    }
-    
-
-    public function setPhp($php)
-    {
-        $this->php = $php;
-
-    }
-
-    public function setUri($uri)
-    {
-        $this->uri = $uri;
-
-    }
-
-
-    public function setCmd($cmd)
-    {
-        $this->cmd = $cmd;
-    }
-
-    protected function runProcess($cmd)
-    {
-
-        echo $cmd . PHP_EOL;
-
-        $process = new Process($cmd);
-        $process->start();
-
-        $process->stdout->on('data', function ($chunk) use ($cmd) {
-            echo $cmd.' '. $chunk . PHP_EOL;
-        });
-
-        $process->stdout->on('end', function ()  use ($cmd) {
-            echo $cmd. ' ended' . PHP_EOL;
-        });
-
-        $process->stdout->on('error', function (\Exception $e)  use ($cmd) {
-            echo $cmd.' error: '.' '. $e->getMessage() . PHP_EOL;
-        });
-
-        $process->stdout->on('close', function () use ($cmd) {
-            echo $cmd.' closed' . PHP_EOL;
-        });
-
-        $process->stderr->on('data', function ($chunk) use ($cmd) {
-            echo $cmd. ' '. $chunk. PHP_EOL;
-        });
-
-
-        $this->processes->attach($process);
-
-        $process->on('exit', function ($exitCode, $termSignal) use ($process, $cmd) {
-            echo 'exit with code ' . $exitCode . ' and signal ' . $termSignal . PHP_EOL;
-            $this->processes->detach($process);
-            if (!$this->closed) {
-                $this->runProcess($cmd);
-            } else {
-                if ($this->processes->count() == 0) {
-                    $this->configs = [];
-                    $this->stoping = false;
-                    $this->runing = false;
-                    if ($this->tcp) {
-                        $this->tcp->close();
-                        $this->tcp = null;
-                    }
-                    if ($this->waitStarting) {
-                        $this->start();
-                    }
-                }
-            }
-        });
-    }
-
-    public function reload()
-    {
-        $this->terminate();
-        $this->start();
-    }
-
-    public function restart()
-    {
-        $this->stop();
-        $this->start();
-    }
-
-    public function terminate()
-    {
-        if ($this->closed) {
-            return ;
-        }
-
-        $this->closed = true;
-        $this->stoping = true;
-        $this->waitStarting = false;
-
-        foreach ($this->processes as $process) {
+        foreach ($this->processes as $wrapper) {
+            $process = $wrapper->getProcess();
             foreach ($process->pipes as $pipe) {
                 $pipe->close();
             }
@@ -272,33 +146,5 @@ class ProcessManager
         }
     }
 
-    public function stop()
-    {
-        if ($this->closed) {
-            return ;
-        }
 
-        $this->closed = true;
-        $this->stoping = true;
-        $this->waitStarting = false;
-        foreach ($this->processes as $process) {
-            $process->close();
-        }
-    }
-
-    public function getInfo()
-    {
-        return [
-            'debug' => static::$debug,
-            'key' => $this->key,
-            'number' => $this->number,
-            'bootFile' => $this->bootFile,
-            'uri' => $this->uri,
-            'php' => $this->php,
-            'cmd' => $this->cmd,
-            'runing' => $this->runing,
-            'closed' => $this->closed,
-            'configs' => $this->configs
-        ];
-    }
 }
