@@ -9,9 +9,16 @@ use ReactphpX\Concurrent\Concurrent;
 
 class ProcessManager extends AbstractConnectionPool
 {
+    protected bool $debug = false;
+
     public function __construct(string $command, int $minIdleProcesses = 1, int $maxProcesses = 1, int $waitQueue = 100, int $waitTimeout = 10)
     {
         parent::__construct($command, $minIdleProcesses, $maxProcesses, $waitQueue, $waitTimeout);
+    }
+
+    public function setDebug(bool $debug): void
+    {
+        $this->debug = $debug;
     }
 
     public function createConnection()
@@ -42,6 +49,19 @@ class ProcessManager extends AbstractConnectionPool
                 $this->process->terminate();
             }
         };
+
+        $process->stdout->on('data', function ($data) use ($wraper) {
+            if ($this->debug) {
+                echo "[STDOUT] \n" . $data;
+            }
+        });
+
+        $process->stderr->on('data', function ($data) use ($wraper) {
+            if ($this->debug) {
+                echo "[STDERR] \n" . $data;
+            }
+        });
+
 
         $process->on('exit', function ($exitCode, $termSignal) use ($wraper) {
             if ($this->pool->contains($wraper)) {
