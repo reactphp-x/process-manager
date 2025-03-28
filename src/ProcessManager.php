@@ -62,7 +62,7 @@ class ProcessManager extends AbstractConnectionPool
         };
 
         $streamPromise = $concurrent->concurrent(fn() => $this->getConnection($prioritize)->then(function ($wraper) use ($callable, $shadow) {
-            $tunnelStream = new TunnelStream($wraper->getProcess()->stdout, $wraper->getProcess()->stdin);
+            $tunnelStream = new TunnelStream($wraper->getProcess()->stderr, $wraper->getProcess()->stdin);
             $shadow->wraper = $wraper;
             $shadow->tunnelStream = $tunnelStream;
             return $tunnelStream->run($callable);
