@@ -73,7 +73,7 @@ class ProcessManager extends AbstractConnectionPool
         return $wraper;
     }
 
-    public function run(callable $callable, $prioritize = 0)
+    public function run(string | callable $callable, $prioritize = 0)
     {
         $concurrent = new Concurrent(1, 0, true);
         $shadow = new class() {
